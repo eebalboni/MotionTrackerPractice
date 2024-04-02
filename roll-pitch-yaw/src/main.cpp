@@ -40,6 +40,22 @@ uint16_t measurement_delay_us = 65535; // Delay between measurements for testing
 #include <MahonyAHRS.h>
 Mahony filter;
 
+unsigned long lastTime = millis();
+float icm_thetaG=0;
+float icm_phiG=0;
+unsigned long oldTime;
+float dt;
+bool done = false;
+float start_lsm_gx;
+float start_lsm_gy;
+float start_lsm_gz;
+float icm_PthetaA = 0;
+float icm_PphiA = 0;
+float icm_theta = 0;
+float icm_phi = 0;
+float angleT = 0;
+float angleP = 0;
+
 void LSM_Initialization(){
   // lsm6ds.setAccelRange(LSM6DS_ACCEL_RANGE_2_G);
   Serial.print("Accelerometer range set to: ");
@@ -288,25 +304,17 @@ void ICM_Initialization(){
   Serial.println();
 }
 
-
-
-
-
-
-
-
-
-
-
-
+float roundToFirstDecimal(float num) {
+  return round(num * 10.0) / 10.0;
+}
 
 void setup(void) {
   Serial.begin(115200);
   while (!Serial)
     delay(10); // will pause Zero, Leonardo, etc until serial console opens
 
+  ///*
   Serial.println("Adafruit ICM20948 test!");
-
   // Try to initialize!
   if (!icm.begin_I2C(0x69,&Wire1)) {
     // if (!icm.begin_SPI(ICM_CS)) {
@@ -319,9 +327,10 @@ void setup(void) {
   }else {
       Serial.println("ICM Found!!");
   }
+  //*/
 
 
-
+  /*
   while (!Serial)
     delay(10); // will pause Zero, Leonardo, etc until serial console opens
 
@@ -347,12 +356,12 @@ void setup(void) {
   }
 
   Serial.println("LSM6DS and LIS3MDL Found!");
-
+  */
   ICM_Initialization();
-  LSM_Initialization();
+  //LSM_Initialization();
   
   filter.begin(100);
-
+  oldTime = millis();
 }
 
 void loop() {
@@ -366,13 +375,33 @@ void loop() {
   lis3mdl.getEvent(&lsm_mag);
 
   icm.getEvent(&icm_accel, &icm_gyro, &icm_temp, &icm_mag);
-
+ /*
   float lsm_ax = lsm_accel.acceleration.x;
   float lsm_ay = lsm_accel.acceleration.y;
   float lsm_az = lsm_accel.acceleration.z;
   float lsm_gx = lsm_gyro.gyro.x;
   float lsm_gy = lsm_gyro.gyro.y;
   float lsm_gz = lsm_gyro.gyro.z;
+  float lsm_mx = lsm_mag.magnetic.x;
+  float lsm_my = lsm_mag.magnetic.y;
+  float lsm_mz = lsm_mag.magnetic.z;
+
+  float lsm_thetaA = atan(lsm_ax/lsm_az) * (180/(M_PI)); // Theta is about the y axis
+  float lsm_phiA = atan(lsm_ay/lsm_az) * (180/(M_PI)); // phi is about the x access
+
+  if (done == false){
+    start_lsm_gx = lsm_gx;
+    start_lsm_gy = lsm_gy;
+    start_lsm_gz = lsm_gz;
+    done=true;
+  }
+
+  dt = (millis()-oldTime)/1000.0;
+  Serial.println(dt, 5);
+  oldTime = millis();
+  lsm_thetaG= (lsm_thetaG + (lsm_gy-start_lsm_gy)*dt); // Theta is about the y axis
+  lsm_phiG = (lsm_phiG + (lsm_gx-start_lsm_gx)*dt); // phi is about the x access
+*/
 
   float icm_ax = icm_accel.acceleration.x;
   float icm_ay = icm_accel.acceleration.y;
@@ -380,6 +409,98 @@ void loop() {
   float icm_gx = icm_gyro.gyro.x;
   float icm_gy = icm_gyro.gyro.y;
   float icm_gz = icm_gyro.gyro.z;
+  float icm_mx = icm_mag.magnetic.x;
+  float icm_my = icm_mag.magnetic.y;
+  float icm_mz = icm_mag.magnetic.z;
+  
+  /*
+  if (icm_ax >= 0 && icm_az >= 0){
+    angle1 = 0;
+  } else if (icm_ax < 0 && icm_az > 0){
+    angle1 = 270;
+  } else if (icm_ax < 0 && icm_az < 0){
+    angle1 = 180;
+  } else {
+    angle1 = 90;
+  } 
+  
+  if (icm_ay >= 0 && icm_az >= 0){
+    angle2 = 0;
+  } else if (icm_ay <= 0 && icm_az >= 0){
+    angle2 = -90;
+  } else if (icm_ay <= 0 && icm_az <= 0){
+    angle2 = 180;
+  } else {
+    angle2 = -270;
+  }
+  */
+
+
+  // Calibration
+  // Set the gyro on several different surfaces and read
+  // See if thers a constant it goes to
+
+  if (icm_ax >= 0 && icm_az >= 0){
+    angleT = 0;
+  } else if (icm_ax >= 0 && icm_az <= 0){
+    angleT = -180;
+  } else if (icm_ax <= 0 && icm_az <= 0){
+    angleT = 180;
+  } else {
+    angleT = -360;
+  }
+
+  if (icm_ay <= 0 && icm_az >= 0){
+    angleP = 0;
+  } else if (icm_ay <= 0 && icm_az <= 0){
+    angleP = -180;
+  } else if (icm_ay >= 0 && icm_az <= 0){
+    angleP = 180;
+  } else {
+    angleP = -360;
+  }
+
+  float icm_thetaA = abs(angleT + abs(atan(icm_ax/icm_az)*(180/(M_PI))) ); // Theta is about the y axis
+  float icm_phiA = abs(angleP + abs(atan(icm_ay/icm_az)*(180/(M_PI)))); // phi is about the x access
+
+  float icm_FthetaA = icm_PthetaA*0.9 + icm_thetaA*0.1; // Theta is about the y axis
+  float icm_FphiA   = icm_PphiA*0.9 + icm_phiA*0.1; // phi is about the x access
+  
+
+  dt = (millis()-oldTime)/1000.0;
+  oldTime = millis();
+  icm_thetaG= (icm_thetaG + roundToFirstDecimal(icm_gy)*dt); // Theta is about the y axis
+  icm_phiG = (icm_phiG + roundToFirstDecimal(icm_gx)*dt); // phi is about the x access
+
+  icm_PthetaA = icm_FthetaA;
+  icm_PphiA = icm_FphiA;
+
+  icm_theta = (icm_theta + (roundToFirstDecimal(icm_gy)*dt)*(180.0/(M_PI)))*.95 + icm_thetaA*.05;
+  icm_phi = (icm_phi + (roundToFirstDecimal(icm_gx)*dt)*(180.0/(M_PI)))*.95 + icm_phiA*.05;
+
+  float icm_thetaRad = icm_theta/(180.0/(M_PI));
+  float icm_phiRad = icm_phi/(180.0/(M_PI));
+
+
+  float icm_proj_mx = icm_mx*cos(icm_thetaRad) + icm_my*sin(icm_phiRad)*sin(icm_thetaRad) - icm_mz*cos(icm_phiRad)*sin(icm_thetaRad);
+  float icm_proj_my = icm_my*cos(icm_phiRad) + icm_mz*sin(icm_phiRad);
+
+  float yaw = atan(icm_proj_my/icm_proj_mx)*(180.0/(M_PI));
+
+  /*
+  if (done == false){
+    start_icm_gx = icm_gx;
+    start_icm_gy = icm_gy;
+    start_icm_gz = icm_gz;
+    done=true;
+  }
+
+  dt = (millis()-oldTime)/1000.0;
+  Serial.println(dt, 5);
+  oldTime = millis();
+  icm_thetaG= (icm_thetaG + (icm_gy-start_icm_gy)*dt); // Theta is about the y axis
+  icm_phiG = (icm_phiG + (icm_gx-start_icm_gx)*dt); // phi is about the x access
+  */
 
   /* Display the results LSM (acceleration is measured in m/s^2) 
   Serial.print("\t\tLSM Accel X: ");
@@ -399,19 +520,70 @@ void loop() {
   Serial.print(icm_gz, 4);
   Serial.println(" \tm/s ");*/
 
-  filter.updateIMU(icm_gx, icm_gy, icm_gz, icm_ax, icm_ay, icm_az);
+  //filter.updateIMU(icm_gx, icm_gy, icm_gz, icm_ax, icm_ay, icm_az);
   // Get yaw, pitch, and roll from the filter
-  float yaw = filter.getYaw();
-  float pitch = filter.getPitch();
-  float roll = filter.getRoll();
+  //float yaw = filter.getYaw();
+  //float pitch = filter.getPitch();
+  //float roll = filter.getRoll();
 
-  // Display results
-  Serial.print("Yaw: ");
-  Serial.println(yaw * 180 / M_PI);
-  Serial.print("Pitch: ");
-  Serial.println(pitch * 180 / M_PI);
-  Serial.print("Roll: ");
-  Serial.println(roll * 180 / M_PI);
+  if (millis()-lastTime>=1){
+    /*
+    // Display results
+    Serial.print("Theta (according to accel): "); //DONT DO THIS NOT RELIABLE
+    Serial.print(icm_FthetaA);
+    Serial.print("\t\t");
+    Serial.print("Phi (according to accel): ");
+    Serial.println(icm_FphiA);
+    */
+
+    /*
+    Serial.print("Theta (according to gyro): ");
+    Serial.print(icm_thetaG*(180.0/(M_PI)));
+    Serial.print("\t\t");
+    Serial.print("Phi (according to gyro): ");
+    Serial.println(icm_phiG*(180.0/(M_PI)));
+    */
+
+    /*
+    Serial.print("Theta: ");
+    Serial.print(icm_theta);
+    Serial.print("\t\t");
+    Serial.print("Phi: ");
+    Serial.println(icm_phi);
+    */
+
+    /*
+    Serial.print("mag x: ");
+    Serial.print(icm_mx);
+    Serial.print("\t\t");
+    Serial.print("mag y: ");
+    Serial.print(icm_my);
+    Serial.print("\t\t");
+    Serial.print("mag z: ");
+    Serial.println(icm_mz);
+    */
+    /*
+    Serial.print("acc x: ");
+    Serial.print(icm_ax);
+    Serial.print("\t\t");
+    Serial.print("acc y: ");
+    Serial.print(icm_ay);
+    Serial.print("\t\t");
+    Serial.print("acc z: ");
+    Serial.println(icm_az);
+    */
+
+    //Serial.print("Tilt: ");
+    Serial.println(yaw);
+
+    lastTime = millis();
+  }
+  
+
+
+
+
+
 /* Display the results ICM (acceleration is measured in m/s^2) 
   Serial.print("\t\tICM Accel X: ");
   Serial.print(icm_ax, 4);
@@ -430,7 +602,4 @@ void loop() {
   Serial.print(lsm_gz, 4);
   Serial.println(" \tm/s ");*/
   
-
-
-  delay(1000);
 }
